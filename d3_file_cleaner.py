@@ -326,9 +326,11 @@ def get_versions_to_keep() -> int:
 def get_subdirectories(directory: str) -> List[Path]:
     """
     Get all subdirectories in the given directory.
-    Returns a list of Path objects for each subdirectory.
+    If no subdirectories are found, returns a list containing just the current directory.
     """
-    return [d for d in Path(directory).iterdir() if d.is_dir()]
+    dir_path = Path(directory)
+    subdirs = [d for d in dir_path.iterdir() if d.is_dir()]
+    return subdirs if subdirs else [dir_path]
 
 def process_directory(directory: str, versions_to_keep: int) -> Tuple[int, int, bool, bool]:
     """
@@ -371,7 +373,7 @@ def main():
     Main function that orchestrates the entire process:
     1. Parse command line arguments
     2. Get number of versions to keep
-    3. Scan for subdirectories
+    3. Scan for subdirectories (or use current directory if none found)
     4. Process each directory with user confirmation between each
     5. Show final summary of all deletions
     """
@@ -392,13 +394,9 @@ def main():
         print("Error: Must keep at least 1 version of each file")
         return
     
-    # Get all subdirectories
+    # Get all subdirectories (or current directory if none found)
     subdirs = get_subdirectories(args.directory)
-    if not subdirs:
-        print(f"No subdirectories found in {args.directory}")
-        return
-    
-    print(f"\nFound {len(subdirs)} subdirectories to process")
+    print(f"\nFound {len(subdirs)} {'subdirectories' if len(subdirs) > 1 else 'directory'} to process")
     print("=" * 80)
     
     # Track totals across all directories
