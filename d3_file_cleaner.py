@@ -19,28 +19,57 @@ def get_human_readable_size(size_bytes: int) -> str:
 class VersionInfo:
     """
     A class to store and compare version information for files.
-    Each version has a date and an optional letter suffix (e.g., 'a', 'b').
+    Each version has either a date or a numeric version number.
+    Date versions can have an optional letter suffix (e.g., 'a', 'b').
     """
-    def __init__(self, date: datetime, letter: Optional[str] = None):
-        self.date = date
-        self.letter = letter
+    def __init__(self, version_str: str):
+        self.version_str = version_str
+        self.is_date_version = version_str.startswith('v')
+        self.is_numeric_version = version_str.startswith('_v')
+        self.letter = None
+        
+        if self.is_date_version:
+            # Extract letter suffix if present
+            letter_match = re.search(r'[a-zA-Z]$', version_str)
+            if letter_match:
+                self.letter = letter_match.group(0)
+                clean_version = version_str[:-1]
+            else:
+                clean_version = version_str
+                
+            if len(clean_version) == 9:  # vYYYYMMDD
+                self.date = datetime.strptime(clean_version[1:], '%Y%m%d')
+            elif len(clean_version) == 13:  # vYYYYMMDDhhmm
+                self.date = datetime.strptime(clean_version[1:], '%Y%m%d%H%M')
+            else:
+                raise ValueError(f"Invalid date version format: {version_str}")
+        elif self.is_numeric_version:
+            self.version_num = int(version_str[2:])
+        else:
+            raise ValueError(f"Invalid version format: {version_str}")
 
     def __lt__(self, other: 'VersionInfo') -> bool:
         """
         Compare two versions to determine which is older.
-        First compares dates, then letters if dates are equal.
+        Date versions and numeric versions are never compared directly.
+        For date versions, first compares dates, then letters if dates are equal.
         Versions without letters are considered older than those with letters.
         """
-        if self.date != other.date:
-            return self.date < other.date
-        # If dates are equal, compare letters
-        if self.letter is None and other.letter is None:
-            return False
-        if self.letter is None:
-            return True
-        if other.letter is None:
-            return False
-        return self.letter < other.letter
+        if self.is_date_version and other.is_date_version:
+            if self.date != other.date:
+                return self.date < other.date
+            # If dates are equal, compare letters
+            if self.letter is None and other.letter is None:
+                return False
+            if self.letter is None:
+                return True
+            if other.letter is None:
+                return False
+            return self.letter < other.letter
+        elif self.is_numeric_version and other.is_numeric_version:
+            return self.version_num < other.version_num
+        else:
+            raise ValueError("Cannot compare date versions with numeric versions")
 
 def parse_filename(filename: str) -> Tuple[str, Optional[str], Optional[str]]:
     """
@@ -127,15 +156,32 @@ def find_latest_versions(directory: str) -> Tuple[Dict[str, List[Tuple[Path, Ver
     
     # Scan all .mov and .png files in the directory
     for file_path in Path(directory).glob('*.[mp][no][vg]'):
-        base_name, version_info = parse_version_date(file_path.name)
-        if base_name and version_info:
-            # File has a version number, add it to the appropriate group
-            if base_name not in files_by_base:
-                files_by_base[base_name] = []
-            files_by_base[base_name].append((file_path, version_info))
+        base_name, version_str, _ = parse_filename(file_path.name)
+        
+        if version_str:
+            try:
+                version_info = VersionInfo(version_str)
+                if base_name not in files_by_base:
+                    files_by_base[base_name] = []
+                files_by_base[base_name].append((file_path, version_info))
+            except ValueError as e:
+                print(f"Warning: Skipping file {file_path.name} - {str(e)}")
         else:
-            # File has no version number, add it to the unversioned list
             unversioned_files.append(file_path)
+    
+    # Check for mixed version types
+    for base_name, files in files_by_base.items():
+        has_date_versions = any(v.is_date_version for _, v in files)
+        has_numeric_versions = any(v.is_numeric_version for _, v in files)
+        
+        if has_date_versions and has_numeric_versions:
+            print(f"\nError: Mixed version types found for {base_name}:")
+            print("This file set contains both date-based versions (vYYYYMMDD) and numeric versions (_vN)")
+            print("Please resolve this manually before running the script again")
+            print("Files:")
+            for file_path, _ in files:
+                print(f"  - {file_path.name}")
+            raise ValueError(f"Mixed version types found for {base_name}")
     
     return files_by_base, unversioned_files
 
@@ -151,17 +197,17 @@ def format_version_date(filename: str) -> str:
 
 def delete_old_versions(directory: str, versions_to_keep: int) -> Tuple[int, int, Dict[str, List[Tuple[Path, VersionInfo]]], List[Path]]:
     """
-    Analyze which files should be kept and which should be deleted.
+    Scan a directory for files and identify which versions to keep/delete.
     Returns:
-    - Number of files to delete
-    - Total bytes to be freed
-    - Dictionary of files to delete by base name
+    - Total number of files to delete
+    - Total size of files to delete in bytes
+    - Dictionary of files to delete, grouped by base name
     - List of unversioned files
     """
     files_by_base, unversioned_files = find_latest_versions(directory)
-    total_files_to_delete = 0
-    total_bytes_to_delete = 0
-    files_to_delete_by_base = {}
+    total_files = 0
+    total_bytes = 0
+    files_to_delete: Dict[str, List[Tuple[Path, VersionInfo]]] = {}
     
     print(f"\nScanning directory: {directory}")
     print(f"Will keep the {versions_to_keep} most recent version(s) of each file")
@@ -169,31 +215,33 @@ def delete_old_versions(directory: str, versions_to_keep: int) -> Tuple[int, int
         print(f"Found {len(unversioned_files)} unversioned files (these will always be kept)")
     print("=" * 80)
     
-    # Process each group of files with the same base name
     for base_name, files in files_by_base.items():
-        # Skip if we don't have enough files to delete
-        if len(files) <= versions_to_keep:
-            continue
-            
         # Sort files by version (newest first)
         files.sort(key=lambda x: x[1], reverse=True)
-        files_to_keep = files[:versions_to_keep]
-        files_to_delete = files[versions_to_keep:]
         
         print(f"\nBase name: {base_name}")
-        print("Keeping:")
-        for file_path, version_info in files_to_keep:
-            print(f"  - {format_version_date(file_path.name)}")
         
-        print("Would delete:")
-        files_to_delete_by_base[base_name] = files_to_delete
-        for file_path, version_info in files_to_delete:
-            file_size = file_path.stat().st_size
-            print(f"  - {format_version_date(file_path.name)} ({get_human_readable_size(file_size)})")
-            total_bytes_to_delete += file_size
-            total_files_to_delete += 1
+        # Keep the specified number of versions
+        files_to_keep = files[:versions_to_keep]
+        files_to_delete[base_name] = files[versions_to_keep:]
+        
+        print("Will keep:")
+        for file_path, version_info in files_to_keep:
+            print(f"  - {file_path.name}")
+        
+        if files_to_delete[base_name]:
+            print("\nWill delete:")
+            for file_path, version_info in files_to_delete[base_name]:
+                file_size = file_path.stat().st_size
+                print(f"  - {file_path.name} ({get_human_readable_size(file_size)})")
+                total_bytes += file_size
+                total_files += 1
+        else:
+            print("\nNo files to delete for this base name")
+        
+        print("-" * 80)
     
-    return total_files_to_delete, total_bytes_to_delete, files_to_delete_by_base, unversioned_files
+    return total_files, total_bytes, files_to_delete, unversioned_files
 
 def confirm_deletion(files_to_delete_by_base: Dict[str, List[Tuple[Path, VersionInfo]]], 
                     total_files: int, total_bytes: int) -> bool:
