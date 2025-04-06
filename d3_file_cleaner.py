@@ -42,33 +42,78 @@ class VersionInfo:
             return False
         return self.letter < other.letter
 
-def parse_version_date(filename: str) -> Tuple[str, Optional[VersionInfo]]:
+def parse_filename(filename: str) -> Tuple[str, Optional[str], Optional[str]]:
     """
-    Extract version information from a filename.
-    Looks for the last occurrence of 8 digits (the date) followed by an optional letter.
-    Returns the base name (everything before the version) and the version info.
-    Returns (None, None) if no valid version is found.
+    Parse a filename into its components:
+    - Base name (everything before the version)
+    - Version number (if present)
+    - Extension
+    
+    Supports multiple version formats:
+    1. vYYYYMMDD[hhmm] (with optional time)
+    2. _vN (where N is a number)
+    3. vYYYYMMDD[hhmm] followed by a letter (e.g., v20240301a)
+    
+    Returns:
+    - Base name (without version)
+    - Version string (if found)
+    - File extension
     """
-    # Pattern to match: 8 digits followed by an optional letter
-    version_pattern = r'(\d{8})([a-zA-Z])?'
-    matches = list(re.finditer(version_pattern, filename))
+    # Remove the extension first
+    name, ext = os.path.splitext(filename)
     
-    if not matches:
-        return None, None
-        
-    # Get the last match (most recent version)
-    last_match = matches[-1]
-    version_str = last_match.group(1)
-    version_letter = last_match.group(2)
+    # Pattern 1: vYYYYMMDD[hhmm] with optional letter suffix
+    date_pattern = r'v(\d{8})(\d{4})?([a-zA-Z])?$'
+    date_match = re.search(date_pattern, name)
+    if date_match:
+        base = name[:date_match.start()]
+        version = date_match.group(0)
+        return base, version, ext
     
+    # Pattern 2: _vN where N is a number
+    number_pattern = r'_v(\d+)$'
+    number_match = re.search(number_pattern, name)
+    if number_match:
+        base = name[:number_match.start()]
+        version = number_match.group(0)
+        return base, version, ext
+    
+    # No version found
+    return name, None, ext
+
+def get_version_date(version: str) -> Optional[datetime]:
+    """
+    Convert a version string to a datetime object.
+    Supports multiple version formats:
+    1. vYYYYMMDD[hhmm] (with optional time)
+    2. _vN (where N is a number)
+    3. vYYYYMMDD[hhmm] followed by a letter (e.g., v20240301a)
+    
+    Returns:
+    - datetime object for date-based versions
+    - None for non-date versions
+    """
+    # Handle _vN format
+    if version.startswith('_v'):
+        try:
+            # Convert to a date far in the future to ensure it's kept
+            return datetime(9999, 12, 31)
+        except ValueError:
+            return None
+    
+    # Handle vYYYYMMDD[hhmm] format
     try:
-        # Convert the 8 digits to a datetime object
-        version_date = datetime.strptime(version_str, '%Y%m%d')
-        # Get everything before the version number as the base name
-        base_name = filename[:last_match.start()]
-        return base_name, VersionInfo(version_date, version_letter)
+        # Remove any letter suffix
+        version = re.sub(r'[a-zA-Z]$', '', version)
+        
+        if len(version) == 9:  # vYYYYMMDD
+            return datetime.strptime(version[1:], '%Y%m%d')
+        elif len(version) == 13:  # vYYYYMMDDhhmm
+            return datetime.strptime(version[1:], '%Y%m%d%H%M')
     except ValueError:
-        return None, None
+        return None
+    
+    return None
 
 def find_latest_versions(directory: str) -> Tuple[Dict[str, List[Tuple[Path, VersionInfo]]], List[Path]]:
     """
