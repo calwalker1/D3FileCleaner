@@ -1,11 +1,11 @@
 # D3 File Cleaner
 
-A Python script to manage video files in a directory that mirrors a media-server folder from Disguise/D3. The script identifies and retains the latest versions of video clips based on filenames containing version dates in the format vYYYYMMDD, while deleting older versions.
+A script to delete MOV/PNGs from a directory while retaining the latest version (simmilar to 'delete unused media' function in Disguise).
 
 ## Features
 
 - Supports both `.mov` and `.png` files
-- Identifies files with version dates in the format vYYYYMMDD
+- Identifies files with version dates in the format vYYYYMMDD (plus letter suffix support)
 - Keeps a specified number of most recent versions
 - Automatically preserves files without version numbers
 - Processes multiple directories in sequence
@@ -13,12 +13,11 @@ A Python script to manage video files in a directory that mirrors a media-server
 - Provides detailed summaries of files to be kept and deleted
 - Shows total space saved across all directories
 - Multiple confirmation steps before deletion
-- Dry-run mode to preview changes without deletion
 
 ## Usage
 
 ```bash
-python d3_file_cleaner.py <directory> [--versions N]
+python3 d3_file_cleaner.py <directory> [--versions N]
 ```
 
 ### Arguments
