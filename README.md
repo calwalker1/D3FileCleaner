@@ -10,7 +10,7 @@ A Python script to manage video files in a directory that mirrors a media-server
   - Numeric: `_vN` (e.g., `_v1`, `_v2`)
 - Keeps a specified number of most recent versions
 - Preserves files without version numbers
-- Processes multiple directories in sequence
+- Processes multiple directories in sequence (or the root directory if there are no subfolders)
 - Shows detailed file comparison before deletion
 - Multiple confirmation steps for safety
 
@@ -22,7 +22,7 @@ python d3_file_cleaner.py <directory> [--versions N]
 
 ### Arguments
 
-- `directory`: The root directory to scan for files
+- `directory`: The root directory to scan for files (e.g. "D:\d3 projects\start\objects\vide" The easiest method is to drag this into the command window)
 - `--versions N`: (Optional) Number of versions to keep. If not provided, you'll be prompted.
 
 ## Process
