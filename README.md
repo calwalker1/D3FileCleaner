@@ -1,6 +1,6 @@
 # D3 File Cleaner
 
-A script to delete MOV/PNGs from a directory while retaining the latest version (simmilar to 'delete unused media' function in Disguise).
+A script to delete MOV/PNGs from a directory while retaining the latest version (simmilar to 'manage old media' function in Disguise).
 
 ## Features
 
