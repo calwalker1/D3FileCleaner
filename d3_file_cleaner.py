@@ -5,6 +5,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
+# ANSI color codes
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 def get_human_readable_size(size_bytes: int) -> str:
     """
     Convert a size in bytes to a human-readable format (e.g., GB, MB).
@@ -209,70 +221,92 @@ def delete_old_versions(directory: str, versions_to_keep: int) -> Tuple[int, int
     total_bytes = 0
     files_to_delete: Dict[str, List[Tuple[Path, VersionInfo]]] = {}
     
-    print(f"\nScanning directory: {directory}")
-    print(f"Will keep the {versions_to_keep} most recent version(s) of each file")
+    print(f"\n{Colors.BOLD}Scanning directory: {directory}{Colors.ENDC}")
+    print(f"{Colors.CYAN}Will keep the {versions_to_keep} most recent version(s) of each file{Colors.ENDC}")
     if unversioned_files:
-        print(f"Found {len(unversioned_files)} unversioned files (these will always be kept)")
+        print(f"{Colors.YELLOW}Found {len(unversioned_files)} unversioned files (these will always be kept){Colors.ENDC}")
     print("=" * 80)
     
     for base_name, files in files_by_base.items():
         # Sort files by version (newest first)
         files.sort(key=lambda x: x[1], reverse=True)
         
-        print(f"\nBase name: {base_name}")
+        print(f"\n{Colors.BOLD}Base name: {base_name}{Colors.ENDC}")
         
         # Keep the specified number of versions
         files_to_keep = files[:versions_to_keep]
         files_to_delete[base_name] = files[versions_to_keep:]
         
-        print("Will keep:")
+        print(f"{Colors.GREEN}Will keep:{Colors.ENDC}")
         for file_path, version_info in files_to_keep:
             print(f"  - {file_path.name}")
         
         if files_to_delete[base_name]:
-            print("\nWill delete:")
+            print(f"\n{Colors.RED}Will delete:{Colors.ENDC}")
             for file_path, version_info in files_to_delete[base_name]:
                 file_size = file_path.stat().st_size
                 print(f"  - {file_path.name} ({get_human_readable_size(file_size)})")
                 total_bytes += file_size
                 total_files += 1
         else:
-            print("\nNo files to delete for this base name")
+            print(f"\n{Colors.YELLOW}No files to delete for this base name{Colors.ENDC}")
         
         print("-" * 80)
     
     return total_files, total_bytes, files_to_delete, unversioned_files
 
-def confirm_deletion(files_to_delete_by_base: Dict[str, List[Tuple[Path, VersionInfo]]], 
-                    total_files: int, total_bytes: int) -> bool:
+def confirm_deletion(files_to_delete: Dict[str, List[Tuple[Path, VersionInfo]]], 
+                    total_files: int, 
+                    total_bytes: int,
+                    versions_to_keep: int) -> bool:
     """
-    Get confirmation from the user before proceeding with deletion.
-    Requires two steps:
-    1. Type 'delete' to proceed
-    2. Enter the exact number of files to be deleted as a sanity check
+    Show files to be deleted and get user confirmation.
+    Returns True if user confirms deletion.
     """
+    print(f"\n{Colors.BOLD}Files to be kept and deleted:{Colors.ENDC}")
+    print("=" * 80)
+    
+    for base_name, files in files_to_delete.items():
+        # Sort files by version (newest first)
+        sorted_files = sorted(
+            files,
+            key=lambda x: x[1],  # VersionInfo objects are already comparable
+            reverse=True
+        )
+        
+        print(f"\n{Colors.BOLD}{base_name}:{Colors.ENDC}")
+        print(f"{Colors.GREEN}  Keeping:{Colors.ENDC}")
+        for file_path, version_info in sorted_files[:versions_to_keep]:
+            print(f"    {file_path.name}")
+        
+        files_to_delete_for_base = sorted_files[versions_to_keep:]
+        if files_to_delete_for_base:
+            print(f"{Colors.RED}  Deleting:{Colors.ENDC}")
+            for file_path, version_info in files_to_delete_for_base:
+                print(f"    {file_path.name}")
+    
     print("\n" + "=" * 80)
-    print(f"\nSummary of files to delete:")
-    print(f"Total files to delete: {total_files}")
-    print(f"Total space to free: {get_human_readable_size(total_bytes)}")
+    print(f"{Colors.BOLD}Total files to delete: {total_files}{Colors.ENDC}")
+    print(f"{Colors.BOLD}Total space to save: {get_human_readable_size(total_bytes)}{Colors.ENDC}")
+    print("=" * 80)
     
     while True:
-        response = input("\nType 'delete' to proceed with deletion, or 'cancel' to abort: ").lower()
+        response = input(f"\n{Colors.YELLOW}Type 'delete' to proceed with deletion, or 'cancel' to abort: {Colors.ENDC}").lower()
         if response == 'cancel':
             return False
         elif response == 'delete':
             # Final sanity check
             try:
-                confirm_number = int(input(f"\nAs a final sanity check, please type the number of files to be deleted ({total_files}): "))
+                confirm_number = int(input(f"\n{Colors.YELLOW}As a final sanity check, please type the number of files to be deleted ({total_files}): {Colors.ENDC}"))
                 if confirm_number == total_files:
                     return True
-                print("Number does not match. Aborting deletion.")
+                print(f"{Colors.RED}Number does not match. Aborting deletion.{Colors.ENDC}")
                 return False
             except ValueError:
-                print("Invalid input. Aborting deletion.")
+                print(f"{Colors.RED}Invalid input. Aborting deletion.{Colors.ENDC}")
                 return False
         else:
-            print("Please type either 'delete' or 'cancel'")
+            print(f"{Colors.RED}Please type either 'delete' or 'cancel'{Colors.ENDC}")
 
 def perform_deletion(files_to_delete_by_base: Dict[str, List[Tuple[Path, VersionInfo]]], 
                     versions_to_keep: int,
@@ -341,7 +375,7 @@ def process_directory(directory: str, versions_to_keep: int) -> Tuple[int, int, 
     - Whether to continue processing (False if deletion was cancelled)
     - Whether there were files to delete (True) or not (False)
     """
-    print(f"\nProcessing directory: {directory}")
+    print(f"\n{Colors.BOLD}Processing directory: {directory}{Colors.ENDC}")
     print("=" * 80)
     
     total_files, total_bytes, files_to_delete, unversioned_files = delete_old_versions(
@@ -350,12 +384,12 @@ def process_directory(directory: str, versions_to_keep: int) -> Tuple[int, int, 
     )
     
     if total_files == 0:
-        print("\nNo files need to be deleted.")
+        print(f"\n{Colors.YELLOW}No files need to be deleted.{Colors.ENDC}")
         if unversioned_files:
-            print(f"Found {len(unversioned_files)} unversioned files (these will always be kept)")
+            print(f"{Colors.YELLOW}Found {len(unversioned_files)} unversioned files (these will always be kept){Colors.ENDC}")
         return 0, 0, True, False
     
-    if confirm_deletion(files_to_delete, total_files, total_bytes):
+    if confirm_deletion(files_to_delete, total_files, total_bytes, versions_to_keep):
         # Calculate space to be saved before deletion
         space_saved = sum(
             file_path.stat().st_size 
@@ -365,7 +399,7 @@ def process_directory(directory: str, versions_to_keep: int) -> Tuple[int, int, 
         perform_deletion(files_to_delete, versions_to_keep, unversioned_files)
         return total_files, space_saved, True, True
     else:
-        print("\nDeletion cancelled.")
+        print(f"\n{Colors.YELLOW}Deletion cancelled.{Colors.ENDC}")
         return 0, 0, False, True
 
 def main():
@@ -386,17 +420,17 @@ def main():
     args = parser.parse_args()
     
     if not os.path.isdir(args.directory):
-        print(f"Error: {args.directory} is not a valid directory")
+        print(f"{Colors.RED}Error: {args.directory} is not a valid directory{Colors.ENDC}")
         return
     
     versions_to_keep = args.versions if args.versions else get_versions_to_keep()
     if versions_to_keep < 1:
-        print("Error: Must keep at least 1 version of each file")
+        print(f"{Colors.RED}Error: Must keep at least 1 version of each file{Colors.ENDC}")
         return
     
     # Get all subdirectories (or current directory if none found)
     subdirs = get_subdirectories(args.directory)
-    print(f"\nFound {len(subdirs)} {'subdirectories' if len(subdirs) > 1 else 'directory'} to process")
+    print(f"\n{Colors.BOLD}Found {len(subdirs)} {'subdirectories' if len(subdirs) > 1 else 'directory'} to process{Colors.ENDC}")
     print("=" * 80)
     
     # Track totals across all directories
@@ -404,35 +438,35 @@ def main():
     total_space_saved = 0
     
     for i, subdir in enumerate(subdirs, 1):
-        print(f"\nProcessing directory {i} of {len(subdirs)}")
+        print(f"\n{Colors.BOLD}Processing directory {i} of {len(subdirs)}{Colors.ENDC}")
         files_deleted, space_saved, should_continue, had_files_to_delete = process_directory(str(subdir), versions_to_keep)
         total_files_deleted += files_deleted
         total_space_saved += space_saved
         
         if not should_continue:
-            print("\nProcess stopped at user request.")
+            print(f"\n{Colors.YELLOW}Process stopped at user request.{Colors.ENDC}")
             break
             
         # Only ask to continue if there were files to delete
         if had_files_to_delete and i < len(subdirs):
             while True:
-                response = input("\nPress 'Y' to continue to the next directory, or 'N' to stop: ").upper()
+                response = input(f"\n{Colors.YELLOW}Press 'Y' to continue to the next directory, or 'N' to stop: {Colors.ENDC}").upper()
                 if response == 'Y':
                     break
                 elif response == 'N':
-                    print("\nStopping at user request.")
+                    print(f"\n{Colors.YELLOW}Stopping at user request.{Colors.ENDC}")
                     break
                 else:
-                    print("Please enter 'Y' or 'N'")
+                    print(f"{Colors.RED}Please enter 'Y' or 'N'{Colors.ENDC}")
             if response == 'N':
                 break
         elif i < len(subdirs):
-            print("\nMoving to next directory...")
+            print(f"\n{Colors.CYAN}Moving to next directory...{Colors.ENDC}")
     
     print("\n" + "=" * 80)
-    print("\nFinal Summary:")
-    print(f"Total files deleted across all directories: {total_files_deleted}")
-    print(f"Total space saved across all directories: {get_human_readable_size(total_space_saved)}")
+    print(f"\n{Colors.BOLD}Final Summary:{Colors.ENDC}")
+    print(f"{Colors.BOLD}Total files deleted across all directories: {total_files_deleted}{Colors.ENDC}")
+    print(f"{Colors.BOLD}Total space saved across all directories: {get_human_readable_size(total_space_saved)}{Colors.ENDC}")
     print("=" * 80)
 
 if __name__ == '__main__':
